@@ -29,9 +29,9 @@ interface IReferalHelper {
     function addReferUSDCAmount(address depositor, address referrer, address token, uint256 amount) external;
 }
 
-// Note that this pool has no minter key of HOPE (rewards).
-// Instead, the governance will call HOPE distributeReward method and send reward to this pool at the beginning.
-contract GenesisRewardPool is ReentrancyGuard{
+// Note that this pool has no minter key of DREAM (rewards).
+// Instead, the governance will call DREAM distributeReward method and send reward to this pool at the beginning.
+contract DreamRewardPool is ReentrancyGuard{
     using SafeMath for uint256;
     using SafeERC20 for IERC20;
 
@@ -40,7 +40,7 @@ contract GenesisRewardPool is ReentrancyGuard{
 
     // Info of each user.
     struct UserInfo {
-        uint256 amount; // How many tokens the user has provided.
+        uint256 amount; // How many LP tokens the user has provided.
         uint256 rewardDebt; // Reward debt. See explanation below.
         bool isTrading;
         int256 totalProfit;
@@ -50,38 +50,38 @@ contract GenesisRewardPool is ReentrancyGuard{
     // Info of each pool.
     struct PoolInfo {
         IERC20 token; // Address of LP token contract.
-        uint256 allocPoint; // How many allocation points assigned to this pool. HOPE to distribute.
-        uint256 lastRewardTime; // Last time that HOPE distribution occurs.
-        uint256 accRewardPerShare; // Accumulated HOPE per share, times 1e18. See below.
-        bool isStarted; // if lastRewardBlock has passed
+        uint256 allocPoint; // How many allocation points assigned to this pool. DREAMs to distribute per block.
+        uint256 lastRewardTime; // Last time that DREAMs distribution occurs.
+        uint256 accDreamPerShare; // Accumulated DREAMs per share, times 1e18. See below.
+        bool isStarted; // if lastRewardTime has passed
         uint256 depositFeeBP;
         uint256 minAmountFortrading;
         uint256 totalDepositAmount;
     }
 
-    IERC20 public hope;
+    IERC20 public dream;
     address public daoAddress;
 
     // Info of each pool.
     PoolInfo[] public poolInfo;
 
-    // Info of each user that stakes tokens.
+    // Info of each user that stakes LP tokens.
     mapping(uint256 => mapping(address => UserInfo)) public userInfo;
     mapping(address => uint256) public investAmount;
-        
+
     // Total allocation points. Must be the sum of all allocation points in all pools.
     uint256 public totalAllocPoint = 0;
 
-    // The time when HOPE mining starts.
+    // The time when DREAM mining starts.
     uint256 public poolStartTime;
 
-    // The time when HOPE mining ends.
+    // The time when DREAM mining ends.
     uint256 public poolEndTime;
 
-    uint256 public hopePerSecond =  0.0496 ether; // 30000 HOPE / (24 * 7 * 60min * 60s)
-    uint256 public runningTime =  7 days;
-    uint256 public constant TOTAL_REWARDS = 30000 ether;
-    
+    uint256 public DreamPerSecond = 0.0039 ether; // 62000 dream / (180 days * 24h * 60min * 60s)
+    uint256 public runningTime = 180 days; // 180 days
+    uint256 public constant TOTAL_REWARDS = 62000 ether;
+
     // For Leverage Trading
     struct Trade {
         uint256 id;
@@ -123,35 +123,35 @@ contract GenesisRewardPool is ReentrancyGuard{
     event RewardPaid(address indexed user, uint256 amount);
 
     constructor(
-        address _hope,
+        address _dream,
         address _dao,
         uint256 _poolStartTime,
         address _tradingHelper,
         address _referalHelper
     ) {
         require(block.timestamp < _poolStartTime, "late");
-        if (_hope != address(0)) hope = IERC20(_hope);
+        if (_dream != address(0)) dream = IERC20(_dream);
         poolStartTime = _poolStartTime;
         poolEndTime = poolStartTime + runningTime;
-        operator = msg.sender;
         daoAddress = _dao;
+        operator = msg.sender;
         tradingHelper = ITradingHelper(_tradingHelper);
         referalHelper = IReferalHelper(_referalHelper);
     }
 
     modifier onlyOperator() {
-        require(operator == msg.sender, "RewardGenesisPool: caller is not the operator");
+        require(operator == msg.sender, "DreamRewardPool: caller is not the operator");
         _;
     }
 
     function checkPoolDuplicate(IERC20 _token) internal view {
         uint256 length = poolInfo.length;
         for (uint256 pid = 0; pid < length; ++pid) {
-            require(poolInfo[pid].token != _token, "RewardGenesisPool: existing pool?");
+            require(poolInfo[pid].token != _token, "DreamRewardPool: existing pool?");
         }
     }
 
-    // Add a new token to the pool. Can only be called by the owner.
+    // Add a new lp to the pool. Can only be called by the owner.
     function add(
         uint256 _allocPoint,
         IERC20 _token,
@@ -159,7 +159,7 @@ contract GenesisRewardPool is ReentrancyGuard{
         uint256 _lastRewardTime,
         uint256 _depositFeeBP,
         uint256 _minAmountFortrading
-    ) external onlyOperator nonReentrant {
+    ) external onlyOperator nonReentrant{
         require(_depositFeeBP <= 100, "add: invalid deposit fee basis points");
         checkPoolDuplicate(_token);
         if (_withUpdate) {
@@ -187,7 +187,7 @@ contract GenesisRewardPool is ReentrancyGuard{
             token : _token,
             allocPoint : _allocPoint,
             lastRewardTime : _lastRewardTime,
-            accRewardPerShare : 0,
+            accDreamPerShare : 0,
             isStarted : _isStarted,
             depositFeeBP: _depositFeeBP,
             minAmountFortrading: _minAmountFortrading,
@@ -198,8 +198,8 @@ contract GenesisRewardPool is ReentrancyGuard{
         }
     }
 
-    // Update the given pool's HOPE allocation point. Can only be called by the owner.
-    function set(uint256 _pid, uint256 _allocPoint, uint256 _depositFeeBP, uint256 _minAmountFortrading) external onlyOperator nonReentrant {
+    // Update the given pool's DREAM allocation point. Can only be called by the owner.
+    function set(uint256 _pid, uint256 _allocPoint, uint256 _depositFeeBP, uint256 _minAmountFortrading) external onlyOperator nonReentrant{
         require(_depositFeeBP <= 100, "set: invalid deposit fee basis points");
         massUpdatePools();
         PoolInfo storage pool = poolInfo[_pid];
@@ -208,7 +208,7 @@ contract GenesisRewardPool is ReentrancyGuard{
                 _allocPoint
             );
         }
-        poolInfo[_pid].allocPoint = _allocPoint;
+        pool.allocPoint = _allocPoint;
         poolInfo[_pid].depositFeeBP = _depositFeeBP;
         poolInfo[_pid].minAmountFortrading = _minAmountFortrading;
     }
@@ -218,27 +218,27 @@ contract GenesisRewardPool is ReentrancyGuard{
         if (_fromTime >= _toTime) return 0;
         if (_toTime >= poolEndTime) {
             if (_fromTime >= poolEndTime) return 0;
-            if (_fromTime <= poolStartTime) return poolEndTime.sub(poolStartTime).mul(hopePerSecond);
-            return poolEndTime.sub(_fromTime).mul(hopePerSecond);
+            if (_fromTime <= poolStartTime) return poolEndTime.sub(poolStartTime).mul(DreamPerSecond);
+            return poolEndTime.sub(_fromTime).mul(DreamPerSecond);
         } else {
             if (_toTime <= poolStartTime) return 0;
-            if (_fromTime <= poolStartTime) return _toTime.sub(poolStartTime).mul(hopePerSecond);
-            return _toTime.sub(_fromTime).mul(hopePerSecond);
+            if (_fromTime <= poolStartTime) return _toTime.sub(poolStartTime).mul(DreamPerSecond);
+            return _toTime.sub(_fromTime).mul(DreamPerSecond);
         }
     }
 
-    // View function to see pending HOPE on frontend.
-    function pendingHOPE(uint256 _pid, address _user) external view returns (uint256) {
+    // View function to see pending DREAMs on frontend.
+    function pendingShare(uint256 _pid, address _user) external view returns (uint256) {
         PoolInfo storage pool = poolInfo[_pid];
         UserInfo storage user = userInfo[_pid][_user];
-        uint256 accRewardPerShare = pool.accRewardPerShare;
+        uint256 accDreamPerShare = pool.accDreamPerShare;
         uint256 tokenSupply = pool.totalDepositAmount;
         if (block.timestamp > pool.lastRewardTime && tokenSupply != 0) {
             uint256 _generatedReward = getGeneratedReward(pool.lastRewardTime, block.timestamp);
-            uint256 _hopeReward = _generatedReward.mul(pool.allocPoint).div(totalAllocPoint);
-            accRewardPerShare = accRewardPerShare.add(_hopeReward.mul(1e18).div(tokenSupply));
+            uint256 _dreamReward = _generatedReward.mul(pool.allocPoint).div(totalAllocPoint);
+            accDreamPerShare = accDreamPerShare.add(_dreamReward.mul(1e18).div(tokenSupply));
         }
-        return user.amount.mul(accRewardPerShare).div(1e18).sub(user.rewardDebt);
+        return user.amount.mul(accDreamPerShare).div(1e18).sub(user.rewardDebt);
     }
 
     // Update reward variables for all pools. Be careful of gas spending!
@@ -266,22 +266,22 @@ contract GenesisRewardPool is ReentrancyGuard{
         }
         if (totalAllocPoint > 0) {
             uint256 _generatedReward = getGeneratedReward(pool.lastRewardTime, block.timestamp);
-            uint256 _hopeReward = _generatedReward.mul(pool.allocPoint).div(totalAllocPoint);
-            pool.accRewardPerShare = pool.accRewardPerShare.add(_hopeReward.mul(1e18).div(tokenSupply));
+            uint256 _dreamReward = _generatedReward.mul(pool.allocPoint).div(totalAllocPoint);
+            pool.accDreamPerShare = pool.accDreamPerShare.add(_dreamReward.mul(1e18).div(tokenSupply));
         }
         pool.lastRewardTime = block.timestamp;
     }
 
     // Deposit LP tokens.
-    function deposit(uint256 _pid, uint256 _amount, address _referrer) external nonReentrant {
+    function deposit(uint256 _pid, uint256 _amount, address _referrer) external nonReentrant{
         address _sender = msg.sender;
         PoolInfo storage pool = poolInfo[_pid];
         UserInfo storage user = userInfo[_pid][_sender];
         updatePool(_pid);
         if (user.amount > 0) {
-            uint256 _pending = user.amount.mul(pool.accRewardPerShare).div(1e18).sub(user.rewardDebt);
+            uint256 _pending = user.amount.mul(pool.accDreamPerShare).div(1e18).sub(user.rewardDebt);
             if (_pending > 0) {
-                safeRewardTransfer(_sender, _pending);
+                safeDreamTransfer(_sender, _pending);
                 emit RewardPaid(_sender, _pending);
             }
         }
@@ -295,10 +295,8 @@ contract GenesisRewardPool is ReentrancyGuard{
                 pool.totalDepositAmount = pool.totalDepositAmount.sub(depositFee);
 
                 if(_amount >= pool.minAmountFortrading && _referrer != address(0) && _referrer != msg.sender) {
-
                     uint256 referFee = depositFee.div(2);
                     pool.token.safeTransfer(_referrer, referFee);
-
                     if(_pid == 0) {
                         referalHelper.addReferWETHAmount(msg.sender, _referrer, address(pool.token), referFee);
                     } else {
@@ -309,22 +307,21 @@ contract GenesisRewardPool is ReentrancyGuard{
                 pool.token.safeTransfer(daoAddress, depositFee);
             }
         }
-
-        user.rewardDebt = user.amount.mul(pool.accRewardPerShare).div(1e18);
+        user.rewardDebt = user.amount.mul(pool.accDreamPerShare).div(1e18);
         emit Deposit(_sender, _pid, _amount);
     }
 
     // Withdraw LP tokens.
-    function withdraw(uint256 _pid, uint256 _amount) external nonReentrant {
+    function withdraw(uint256 _pid, uint256 _amount) external nonReentrant{
         address _sender = msg.sender;
         PoolInfo storage pool = poolInfo[_pid];
         UserInfo storage user = userInfo[_pid][_sender];
         require(user.amount >= _amount, "withdraw: not good");
         require(!user.isTrading, "withdraw: you are trading now, end trade first");
         updatePool(_pid);
-        uint256 _pending = user.amount.mul(pool.accRewardPerShare).div(1e18).sub(user.rewardDebt);
+        uint256 _pending = user.amount.mul(pool.accDreamPerShare).div(1e18).sub(user.rewardDebt);
         if (_pending > 0) {
-            safeRewardTransfer(_sender, _pending);
+            safeDreamTransfer(_sender, _pending);
             emit RewardPaid(_sender, _pending);
         }
         if (_amount > 0) {
@@ -332,12 +329,12 @@ contract GenesisRewardPool is ReentrancyGuard{
             pool.totalDepositAmount = pool.totalDepositAmount.sub(_amount);
             pool.token.safeTransfer(_sender, _amount);
         }
-        user.rewardDebt = user.amount.mul(pool.accRewardPerShare).div(1e18);
+        user.rewardDebt = user.amount.mul(pool.accDreamPerShare).div(1e18);
         emit Withdraw(_sender, _pid, _amount);
     }
 
     // Withdraw without caring about rewards. EMERGENCY ONLY.
-    function emergencyWithdraw(uint256 _pid) external nonReentrant {
+    function emergencyWithdraw(uint256 _pid) external nonReentrant{
         PoolInfo storage pool = poolInfo[_pid];
         UserInfo storage user = userInfo[_pid][msg.sender];
         if(user.isTrading) {
@@ -351,14 +348,14 @@ contract GenesisRewardPool is ReentrancyGuard{
         emit EmergencyWithdraw(msg.sender, _pid, _amount);
     }
 
-    // Safe HOPE transfer function, just in case if rounding error causes pool to not have enough HOPEs.
-    function safeRewardTransfer(address _to, uint256 _amount) internal {
-        uint256 _hopeBalance = hope.balanceOf(address(this));
-        if (_hopeBalance > 0) {
-            if (_amount > _hopeBalance) {
-                hope.safeTransfer(_to, _hopeBalance);
+    // Safe dream transfer function, just in case if rounding error causes pool to not have enough DREAMs.
+    function safeDreamTransfer(address _to, uint256 _amount) internal {
+        uint256 _dreamBal = dream.balanceOf(address(this));
+        if (_dreamBal > 0) {
+            if (_amount > _dreamBal) {
+                dream.safeTransfer(_to, _dreamBal);
             } else {
-                hope.safeTransfer(_to, _amount);
+                dream.safeTransfer(_to, _amount);
             }
         }
     }
@@ -402,8 +399,8 @@ contract GenesisRewardPool is ReentrancyGuard{
 
     function governanceRecoverUnsupported(IERC20 _token, uint256 amount, address to) external onlyOperator {
         if (block.timestamp < poolEndTime + 90 days) {
-            // do not allow to drain core token (HOPE or lps) if less than 90 days after pool ends
-            require(_token != hope, "hope");
+            // do not allow to drain core token (dream or lps) if less than 90 days after pool ends
+            require(_token != dream, "dream");
             uint256 length = poolInfo.length;
             for (uint256 pid = 0; pid < length; ++pid) {
                 PoolInfo storage pool = poolInfo[pid];
@@ -423,7 +420,7 @@ contract GenesisRewardPool is ReentrancyGuard{
         referalHelper = IReferalHelper(_referalHelper);
     }
 
-    function openTrade(uint256 _pid, uint256 _borrowAmount, uint256 _limitPrice) external nonReentrant {
+    function openTrade(uint256 _pid, uint256 _borrowAmount, uint256 _limitPrice) public {
         require(block.timestamp < poolEndTime.sub(1 hours), "leverage trading is disabled");
         address _trader = msg.sender;
         // _pid = 0: weth pool, _pid = 1: usdc pool
@@ -434,18 +431,19 @@ contract GenesisRewardPool is ReentrancyGuard{
         TradeInfo storage tradeInfo = tradeInfos[_pid];
 
         require(!user.isTrading, "already started one trading");
+        require(user.amount >= pool.minAmountFortrading, "need to deposit min amount for trading");
         require(user.amount.mul(feeDenominator).div(feeDenominator.sub(pool.depositFeeBP)) >= pool.minAmountFortrading, "need to deposit min amount for trading");
         require(user.amount.mul(tradingHelper.getMaxMultiplier(_pid)) >= _borrowAmount, "exceed max multiplier");
-        
+
         uint256 borrowableAmount = getBorrowableAmount(_pid);
-        require(_borrowAmount <= borrowableAmount, "wrong borrow amount for trade");
+        require(_borrowAmount <= borrowableAmount, "wrong borrow amount");
         require(_borrowAmount >= user.amount, "wrong borrow amount");
 
         tradeInfo.totalBorrowedAmount = tradeInfo.totalBorrowedAmount.add(_borrowAmount);
 
         uint256 swappedAmount = 0;
         uint256 liqPrice = 0;
-
+        
         pool.token.safeIncreaseAllowance(address(tradingHelper), _borrowAmount);
         if(_pid == 1) {
             swappedAmount = tradingHelper.SwapToWETH(_borrowAmount);
@@ -458,7 +456,7 @@ contract GenesisRewardPool is ReentrancyGuard{
         }
 
         uint256 startPrice = tradingHelper.getETHprice();
-        
+
         user.isTrading = true;
         user.currentTradeId = tradeCount;
         trades[tradeCount] = Trade(
@@ -524,7 +522,7 @@ contract GenesisRewardPool is ReentrancyGuard{
         require(trade.isTrading, "not started yet");
 
         uint256 lastAmount;
-
+        
         if(trade.pid == 1) {
             poolInfo[0].token.safeIncreaseAllowance(address(tradingHelper), trade.swappedAmount);
             lastAmount = tradingHelper.SwapWETH(trade.swappedAmount);
@@ -538,9 +536,9 @@ contract GenesisRewardPool is ReentrancyGuard{
         tradeInfo.totalReturnedAmount = tradeInfo.totalReturnedAmount.add(lastAmount);
 
         updatePool(trade.pid);
-        uint256 _pending = user.amount.mul(pool.accRewardPerShare).div(1e18).sub(user.rewardDebt);
+        uint256 _pending = user.amount.mul(pool.accDreamPerShare).div(1e18).sub(user.rewardDebt);
         if (_pending > 0) {
-            safeRewardTransfer(trade.user, _pending);
+            safeDreamTransfer(trade.user, _pending);
             emit RewardPaid(trade.user, _pending);
         }
 
@@ -589,7 +587,7 @@ contract GenesisRewardPool is ReentrancyGuard{
         trade.endTime = block.timestamp;
         tradeInfo.lastTradeEndTime = block.timestamp;
         tradeInfo.feeAmount = tradeInfo.feeAmount.add(feeAmount);
-        user.rewardDebt = user.amount.mul(pool.accRewardPerShare).div(1e18);
+        user.rewardDebt = user.amount.mul(pool.accDreamPerShare).div(1e18);
         user.isTrading = false;
         trade.isTrading = false;
     }
@@ -625,7 +623,7 @@ contract GenesisRewardPool is ReentrancyGuard{
         }
     }
 
-    function getUserTradeInfo(uint256 _pid, address _account) external view returns(Trade memory) {
+    function getUserTradeInfo(uint256 _pid, address _account) public view returns(Trade memory) {
         UserInfo storage user = userInfo[_pid][_account];
         return trades[user.currentTradeId];
     }
